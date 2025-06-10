@@ -1,0 +1,105 @@
+#include <SPI.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ILI9341.h>
+#include <DHT.h>
+#include <Adafruit_NeoPixel.h>
+#include <Fonts/FreeMono24pt7b.h>  // nueva fuente
+
+// — Pines TFT (SPI) —
+#define TFT_CS    14
+#define TFT_DC    47
+#define TFT_RST   21
+#define TFT_MOSI  45
+#define TFT_MISO  46
+#define TFT_SCK    3
+
+// — DHT11 —
+#define DHTPIN    2
+#define DHTTYPE   DHT11
+
+// — NeoPixel RGB integrado —
+#define LED_PIN   48
+
+Adafruit_ILI9341 tft(TFT_CS, TFT_DC, TFT_RST);
+DHT               dht(DHTPIN, DHTTYPE);
+Adafruit_NeoPixel led(1, LED_PIN, NEO_GRB + NEO_KHZ800);
+
+const unsigned long READ_INTERVAL = 2000;
+unsigned long lastRead = 0;
+float lastTemp = NAN, lastHum = NAN;
+
+// para borrar texto previo
+int16_t  t_x=0,  t_y=0; uint16_t t_w=0,  t_h=0;
+int16_t  h_x=0,  h_y=0; uint16_t h_w=0,  h_h=0;
+
+void initSPI() {
+  SPI.end();
+  SPI.begin(TFT_SCK, TFT_MISO, TFT_MOSI, TFT_CS);
+}
+
+uint32_t tempToColor(float t) {
+  uint8_t r,g,b;
+  if (t<20)      {r=0;g=0;b=255;}
+  else if (t<28) {float k=(t-20)/8; r=0; g=255*k; b=255*(1-k);}
+  else           {float k=(t-28)/10; r=255*k; g=255*(1-k); b=0;}
+  return led.Color(r,g,b);
+}
+
+void setup() {
+  initSPI();
+  delay(100);
+  tft.begin();
+  tft.setRotation(3);
+  tft.fillScreen(ILI9341_BLACK);
+
+  dht.begin();
+  led.begin();
+  led.show();
+
+  // Cargamos la nueva fuente
+  tft.setFont(&FreeMono24pt7b);
+  tft.setTextSize(1);
+}
+
+void loop() {
+  if (millis() - lastRead < READ_INTERVAL) return;
+  lastRead = millis();
+
+  float t = dht.readTemperature();
+  float h = dht.readHumidity();
+  if (!isnan(t)) lastTemp = t;
+  if (!isnan(h)) lastHum  = h;
+
+  led.setPixelColor(0, tempToColor(lastTemp));
+  led.show();
+
+  char bufT[8], bufH[8];
+  int Ti = int(round(lastTemp)), Hi = int(round(lastHum));
+  snprintf(bufT,sizeof(bufT),"%d°C",Ti);
+  snprintf(bufH,sizeof(bufH),"%d%%",Hi);
+
+  // Borrar texto viejo temperatura
+  if (t_w && t_h) tft.fillRect(t_x, t_y - t_h, t_w, t_h, ILI9341_BLACK);
+  // Calcular y dibujar nuevo
+  {
+    int16_t x1,y1; uint16_t bw,bh;
+    tft.getTextBounds(bufT,0,0,&x1,&y1,&bw,&bh);
+    int16_t x=(320-bw)/2, y=(120+bh)/2;
+    tft.setCursor(x,y);
+    tft.setTextColor(ILI9341_WHITE,ILI9341_BLACK);
+    tft.print(bufT);
+    t_x=x; t_y=y; t_w=bw; t_h=bh;
+  }
+
+  // Borrar texto viejo humedad
+  if (h_w && h_h) tft.fillRect(h_x, h_y - h_h, h_w, h_h, ILI9341_BLACK);
+  // Calcular y dibujar nuevo
+  {
+    int16_t x1,y1; uint16_t bw,bh;
+    tft.getTextBounds(bufH,0,0,&x1,&y1,&bw,&bh);
+    int16_t x=(320-bw)/2, y=120 + (120+bh)/2;
+    tft.setCursor(x,y);
+    tft.print(bufH);
+    h_x=x; h_y=y; h_w=bw; h_h=bh;
+  }
+}
